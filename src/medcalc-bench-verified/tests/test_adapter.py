@@ -58,6 +58,7 @@ class AdapterTests(unittest.TestCase):
                 self.assertNotIn("github.com", (path/"instruction.md").read_text())
                 self.assertTrue((path/"solution/answer.txt").exists())
                 self.assertTrue((path/"tests/gold.json").exists())
+                self.assertTrue((path/"tests/Dockerfile").is_file())
             self.assertEqual(len(names), 1100)
 
     def test_selection_and_overwrite(self):

@@ -43,6 +43,7 @@ case-<row>/
   environment/Dockerfile
   solution/solve.sh
   solution/answer.txt
+  tests/Dockerfile
   tests/test.sh
   tests/grade.py
   tests/grading.py
@@ -50,7 +51,7 @@ case-<row>/
   tests/gold.json
 ```
 
-Only the Dockerfile enters the agent image. Answer artifacts are materialized at
+Each role has its own Dockerfile. No data is copied into either image at build time. Answer artifacts are materialized at
 `/workspace/answer.txt` in the fresh verifier, per the pinned Harbor runtime.
 
 ## Run Evaluation / Harness
@@ -129,6 +130,8 @@ or the original benchmark's train/test split. Relevant original functions:
 `evaluation/evaluate.py:11–53` (`check_correctness`) and
 `evaluation/generate_code_prompt.py:50–66` (`apply_calc` prompt construction).
 There is no existing MedCalc implementation in the checked Harbor source tree.
+
+First Docker smoke failed before grading because the separate verifier lacked an environment definition. Added tests/Dockerfile and a regression assertion; the failed run remains available in Actions. This was an adapter environment failure, not a model failure.
 
 All validation runs retain fresh filenames/run IDs. Offline tests are contract
 checks; no clinical algorithm or novel scientific method is claimed. This is a
