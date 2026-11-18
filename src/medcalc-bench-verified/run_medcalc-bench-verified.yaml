@@ -1,0 +1,13 @@
+datasets:
+  - path: datasets/medcalc-bench-verified
+agents:
+  - name: oracle
+# agents:
+#   - name: codex
+#     model_name: <team-approved-model-id>
+environment:
+  type: docker
+  delete: true
+orchestrator:
+  type: local
+  n_concurrent_trials: 4

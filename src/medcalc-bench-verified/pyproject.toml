@@ -1,0 +1,20 @@
+[project]
+name = "harbor-medcalc-bench-verified-adapter"
+version = "0.1.0"
+description = "Pinned full-test MedCalc-Bench Verified adapter"
+readme = "README.md"
+authors = [{name = "Jingzhi Chen"}]
+requires-python = ">=3.12"
+dependencies = []
+[project.scripts]
+medcalc-bench-verified = "medcalc_bench_verified.main:main"
+[build-system]
+requires = ["uv_build==0.13.9"]
+build-backend = "uv_build"
+[tool.uv.build-backend]
+module-name = "medcalc_bench_verified"
+
+[dependency-groups]
+dev = ["harbor"]
+[tool.uv.sources]
+harbor = {git = "https://github.com/harbor-framework/harbor.git", rev = "99218a4611e3bd76e49ce3b5f977e8c8134ad3ac"}

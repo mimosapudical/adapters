@@ -1,0 +1,40 @@
+[
+  {
+    "adapter_name": "medcalc-bench-verified",
+    "adapter_builders": [
+      "Jingzhi Chen"
+    ],
+    "original_benchmark": [
+      {
+        "split": "test",
+        "size": 1100,
+        "harness": "llm",
+        "supported_agents": [
+          "None"
+        ],
+        "adaptable": true,
+        "notes": "Pinned Verified release; no training examples adapted."
+      }
+    ],
+    "harbor_adapter": [
+      {
+        "split": "test",
+        "adapted_benchmark_size": 1100,
+        "parity_benchmark_size": 0,
+        "parity_sampling_rate": 0,
+        "registry_benchmark_size": 0,
+        "added_agents": [
+          "None"
+        ],
+        "parity_matching_agents": [
+          "None"
+        ],
+        "parity_unmatching_agents": [
+          "None"
+        ],
+        "parity_costs": null,
+        "notes": "Oracle and model parity pending. Proposed parity subset has 110 cases."
+      }
+    ]
+  }
+]
