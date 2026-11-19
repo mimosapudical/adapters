@@ -17,7 +17,7 @@ permissions:
   contents: read
 jobs:
   native-offline:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
@@ -32,6 +32,10 @@ jobs:
           mkdir -p "$GITHUB_WORKSPACE/native-evidence"
           uv run python scripts/check_generated_equivalence.py --output "$GITHUB_WORKSPACE/native-evidence/generator-equivalence.json"
           uv run medcalc-bench-verified --output-dir "$RUNNER_TEMP/native-pilot" --limit 3
+      - name: Ensure Docker is running
+        run: |
+          if ! docker info >/dev/null 2>&1; then sudo systemctl start docker; fi
+          docker info
       - name: Original-controller bridge with offline stub responses
         working-directory: src/medcalc-bench-verified
         env:

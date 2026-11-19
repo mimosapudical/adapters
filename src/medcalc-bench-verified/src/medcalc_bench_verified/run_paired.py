@@ -43,6 +43,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--plan', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--pilot-only', action='store_true')
     parser.add_argument('--cache-dir', type=Path, default=Path.home()/'.cache/harbor-medcalc')
     args = parser.parse_args()
     plan = json.loads(args.plan.read_text())
@@ -53,6 +54,8 @@ def main():
     rows, sources = read_rows(args.cache_dir)
     original_scores, harbor_scores = [], []
     stages = [('pilot',plan['pilot_ids'],0)] + [(f'run-{i}',plan['task_ids'],i) for i in range(1,4)]
+    if args.pilot_only:
+        stages = stages[:1]
     for label, ids, index in stages:
         stage = args.output/label
         stage.mkdir()
@@ -76,6 +79,9 @@ def main():
         if index:
             original_scores.append(original['score'])
             harbor_scores.append(harbor['score'])
+    if args.pilot_only:
+        (args.output/'pilot-summary.json').write_text(json.dumps({'pilot_only':True,'full_parity_complete':False,'original':original,'harbor':harbor},indent=2))
+        return
     (args.output/'comparison.json').write_text(json.dumps(comparison(original_scores,harbor_scores),indent=2))
 
 

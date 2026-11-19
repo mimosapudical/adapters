@@ -124,6 +124,13 @@ uv run medcalc-bench-verified --split parity --output-dir /tmp/parity-tasks
 uv run python -m medcalc_bench_verified.run_paired --plan approved-plan.json --output /new/evidence-directory
 ```
 
+For a five-case check only, append `--pilot-only`; this writes a pilot summary
+explicitly marked as incomplete parity. The fork's **MedCalc approved model
+experiment** workflow provides the same entry point: keep `pilot_only=true`,
+enter the team-confirmed model/endpoint/approval, and store its key as the
+`MEDCALC_API_KEY` repository Actions secret. The workflow never starts on a
+push and never treats a pilot as the full three-repeat experiment.
+
 The driver enforces the order pilot-original → pilot-Harbor → run-1-original →
 run-1-Harbor → run-2-original → run-2-Harbor → run-3-original → run-3-Harbor.
 Missing trials, API failures or container errors stop collection; they are not
