@@ -171,13 +171,19 @@ Full reference validation continues on commit `6b0130e2128fe1a188906c3eb8bab893f
 and the original branch. `validation/evidence-r08.json` independently checks six
 artifact ZIP digests, 600 unique oracle rewards of 1 and 600 unique nop rewards
 of 0, with zero exceptions. It is explicitly partial. Raw ZIPs remain available
-from Actions for 14 days. The remaining five shards are not represented as passed.
+from Actions for 14 days. At the next live check, shards 6 and 7 also passed. Shard 8 failed before grading because its GitHub runner Docker daemon was stopped; an independent shard-8 recovery explicitly starts/checks Docker. Final pass counts remain pending completion of all jobs.
 
 The parity work is isolated on `medcalc-native-parity-r08`. A byte-level comparison
 against the oracle commit checks all 1,100 generated full-test tasks before
 carrying oracle evidence forward; the native bridge has separate offline Docker
 integration CI. This avoids rerunning unchanged generated tasks when only the
 native agent, subset selector or reporting code changes.
+
+A final evidence workflow waits for original shards 9/10 and recovery shard 8,
+then validates exactly 1,100 unique tasks per control and matching task checksums.
+It archives all raw logs and its full summary for 90 days. It fails closed on
+missing cases, duplicates, exceptions, wrong rewards or a shared verifier.
+The proposed PR description is in `validation/pr-draft-r14.md`; it is not submitted.
 
 All validation runs retain fresh filenames/run IDs. Offline tests are contract
 checks; no clinical algorithm or novel scientific method is claimed. This is a
