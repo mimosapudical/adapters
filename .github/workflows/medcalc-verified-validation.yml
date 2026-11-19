@@ -2,7 +2,15 @@ name: MedCalc Verified validation
 on:
   push:
     branches: [medcalc-bench-verified-adapter-r01]
-    paths: ['src/medcalc-bench-verified/**', '.github/workflows/medcalc-verified-validation.yml']
+    paths:
+      - 'src/medcalc-bench-verified/src/medcalc_bench_verified/adapter.py'
+      - 'src/medcalc-bench-verified/src/medcalc_bench_verified/source.py'
+      - 'src/medcalc-bench-verified/src/medcalc_bench_verified/grading.py'
+      - 'src/medcalc-bench-verified/src/medcalc_bench_verified/main.py'
+      - 'src/medcalc-bench-verified/src/medcalc_bench_verified/task-template/**'
+      - 'src/medcalc-bench-verified/pyproject.toml'
+      - 'src/medcalc-bench-verified/uv.lock'
+      - 'src/medcalc-bench-verified/tests/test_adapter.py'
   workflow_dispatch:
 permissions:
   contents: read

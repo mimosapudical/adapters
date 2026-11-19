@@ -92,12 +92,45 @@ Nothing in CI submits model API requests. Before model execution the team must
 approve the exact agent version, dated model ID, budgets, prompt/tool interface,
 subset and three runs per side. Ownership of this new entry remains unconfirmed.
 
-Proposed study: choose two fixed cases per calculator (110 cases), run a 5–10-case
-paired pilot, one full paired run, then two more paired runs. Freeze the IDs and
-configuration first. Implement the selected CLI agent on the original-benchmark
-fork and use identical instructions and budgets on both sides; do not compare a
-CLI agent against the old chat controller. The 110-case proposal is not yet an
-implemented/approved `parity` split. The CLI currently supports the complete test split.
+Prepared proposal: 110 deterministic cases, two per calculator; five pilot cases
+cover distinct calculators and decimal/integer/date outputs. Frozen IDs and a
+verified image digest are in `validation/parity-plan.proposed-r09.json`.
+The model, endpoint and team approval fields are deliberately blank.
+
+The original code-augmented controller is now available as
+`medcalc_bench_verified.native_agent:MedCalcNativeAgent`. Its three upstream
+controller functions are loaded without editing their bodies. An HTTP shim
+adapts the legacy OpenAI client call to an OpenAI-compatible endpoint. Original
+system/user message roles, Python-code feedback, retries by the model and the
+20-turn limit are preserved. No generation code or gold data enters the model
+prompt. All 1,100 instructions round-trip to the exact native request.
+
+The independent original-side runner starts Docker directly and grades against
+the pinned original scorer. Numeric inputs are screened before its unsafe eval;
+the Harbor bridge invokes the same original controller in Harbor's container.
+Both sides must use the approved exact model, endpoint, image and resources.
+Original-side Docker uses bridge networking; Harbor uses its public-egress policy.
+The tasks need no private endpoints, but this network-policy distinction must be
+reviewed in the parity plan before live execution. Native protocol replay is
+separate from CLI-agent generalization; a standard Codex/Claude Code run remains
+part of the team-coordinated evaluation requirements.
+
+After team confirmation, fill the plan and set the API key in the execution
+environment (never put a key in the JSON or repository):
+
+```bash
+# These commands have NOT been run with a real model.
+uv run medcalc-bench-verified --split parity --output-dir /tmp/parity-tasks
+uv run python -m medcalc_bench_verified.run_paired --plan approved-plan.json --output /new/evidence-directory
+```
+
+The driver enforces the order pilot-original → pilot-Harbor → run-1-original →
+run-1-Harbor → run-2-original → run-2-Harbor → run-3-original → run-3-Harbor.
+Missing trials, API failures or container errors stop collection; they are not
+silently converted to model failures. The driver writes raw arrays, means,
+sample SEM and range-overlap status only after three complete runs per side.
+An offline stub validates transport and execution only; it is never recorded as
+model parity or a benchmark score.
 
 Report original/Harbor raw run scores, mean ± sample SEM, per-calculator results,
 errors, and the required overlap of run-score ranges. SEM = sample standard
@@ -108,7 +141,7 @@ API costs. Dataset and Hugging Face evidence publication remain pending.
 ## Notes & Caveats
 
 Preflight base: Harbor Index adapters `7b4df9deb2381ae32f26e6cebec06aaa2975dc56`.
-Existing v2 merged-PR search returned no results at preflight. An older merged
+Existing v2 merged-PR search returned no results at initial preflight. An older merged
 CanItEdit adapter provides a useful acceptance pattern: full oracle, negative
 controls, genuine three-repeat matched parity, and published artifacts. Current
 WIPs with partial oracle or pending parity are examples of incomplete milestones,
@@ -121,7 +154,8 @@ Implementation checklist:
 - [x] Offline scorer differential and hostile-answer checks.
 - [ ] Complete Docker oracle 1,100/1,100 with zero exceptions and nop 0/1,100.
 - [ ] Resolve exact image digest and team approval of ownership/parity configuration.
-- [ ] Implement and execute the approved original-side agent, then matched model parity.
+- [x] Implement original-controller and Harbor bridge plus paired experiment driver.
+- [ ] Execute team-approved live-model parity and a standard CLI-agent evaluation.
 - [ ] Publish task/evidence datasets and obtain structural and semantic review.
 
 New files are confined to this adapter and a fork-only validation workflow. Do not
@@ -132,6 +166,18 @@ or the original benchmark's train/test split. Relevant original functions:
 There is no existing MedCalc implementation in the checked Harbor source tree.
 
 First Docker smoke failed before grading because the separate verifier lacked an environment definition. Added tests/Dockerfile and a regression assertion; the failed run remains available in Actions. The second smoke exposed the corresponding runtime contract: separate-verifier checks must be baked into the verifier image. Added COPY . /tests/ only in tests/Dockerfile, never the agent Dockerfile. Both were adapter environment failures, not model failures.
+
+Full reference validation continues on commit `6b0130e2128fe1a188906c3eb8bab893f732bdef`
+and the original branch. `validation/evidence-r08.json` independently checks six
+artifact ZIP digests, 600 unique oracle rewards of 1 and 600 unique nop rewards
+of 0, with zero exceptions. It is explicitly partial. Raw ZIPs remain available
+from Actions for 14 days. The remaining five shards are not represented as passed.
+
+The parity work is isolated on `medcalc-native-parity-r08`. A byte-level comparison
+against the oracle commit checks all 1,100 generated full-test tasks before
+carrying oracle evidence forward; the native bridge has separate offline Docker
+integration CI. This avoids rerunning unchanged generated tasks when only the
+native agent, subset selector or reporting code changes.
 
 All validation runs retain fresh filenames/run IDs. Offline tests are contract
 checks; no clinical algorithm or novel scientific method is claimed. This is a

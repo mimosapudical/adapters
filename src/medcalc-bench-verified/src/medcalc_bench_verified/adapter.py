@@ -25,8 +25,8 @@ class MedCalcBenchVerifiedAdapter:
     def __init__(self, output_dir, limit=None, overwrite=False, task_ids=None,
                  cache_dir=Path.home()/".cache"/"harbor-medcalc", split="test",
                  shard_index=0, shard_count=1):
-        if split != "test":
-            raise ValueError("Only the full test split is implemented")
+        if split not in ("test", "parity"):
+            raise ValueError("Unknown split")
         if limit is not None and limit < 1:
             raise ValueError("limit must be positive")
         if not 0 <= shard_index < shard_count:
@@ -41,6 +41,11 @@ class MedCalcBenchVerifiedAdapter:
         ids = [r["Row Number"] for r in rows]
         if len(rows) != 1100 or len(set(ids)) != 1100:
             raise ValueError("Unexpected upstream split")
+        if self.split == "parity":
+            from .parity import select_ids
+            selected = set(select_ids(rows))
+            rows = [r for r in rows if r["Row Number"] in selected]
+            ids = [r["Row Number"] for r in rows]
         if self.task_ids and set(self.task_ids) - set(ids):
             raise ValueError("Unknown task ID")
         if self.task_ids:

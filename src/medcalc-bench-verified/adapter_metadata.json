@@ -24,7 +24,7 @@
         "parity_sampling_rate": 0,
         "registry_benchmark_size": 0,
         "added_agents": [
-          "None"
+          "medcalc-native@801592132bfd833f049b517a4e013e00a5fc40fa+bridge-0.1"
         ],
         "parity_matching_agents": [
           "None"
@@ -33,7 +33,7 @@
           "None"
         ],
         "parity_costs": null,
-        "notes": "Oracle and model parity pending. Proposed parity subset has 110 cases."
+        "notes": "Reference validation underway; six shards independently checked (600/1100). Native controller bridge tested offline; no live-model parity or registry publication."
       }
     ]
   }
