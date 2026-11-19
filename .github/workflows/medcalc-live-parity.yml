@@ -1,0 +1,83 @@
+name: MedCalc approved model experiment
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Reviewed adapter branch or commit
+        required: true
+        default: medcalc-native-parity-r08
+      model_id:
+        description: Exact model ID confirmed by the Harbor team
+        required: true
+      base_url:
+        description: Team-provided HTTPS API base ending in /v1
+        required: true
+      approved_by:
+        description: Team member who confirmed the parity plan
+        required: true
+      approval_reference:
+        description: Link to that confirmation
+        required: true
+      pilot_only:
+        description: Run only the five paired pilot cases
+        type: boolean
+        required: true
+        default: true
+permissions:
+  contents: read
+concurrency:
+  group: medcalc-approved-model-experiment
+  cancel-in-progress: false
+jobs:
+  approved-paired-experiment:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    env:
+      OPENAI_API_KEY: ${{ secrets.MEDCALC_API_KEY }}
+      MODEL_ID: ${{ inputs.model_id }}
+      API_BASE: ${{ inputs.base_url }}
+      APPROVED_BY: ${{ inputs.approved_by }}
+      APPROVAL_REFERENCE: ${{ inputs.approval_reference }}
+      PILOT_ONLY: ${{ inputs.pilot_only }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.source_ref }}
+          persist-credentials: false
+      - name: Require the team-provided API key
+        run: test -n "$OPENAI_API_KEY"
+      - uses: astral-sh/setup-uv@v7
+      - name: Prepare the approved plan
+        working-directory: src/medcalc-bench-verified
+        run: |
+          uv sync --locked
+          uv run python - <<'PY'
+          import json, os
+          from pathlib import Path
+          from medcalc_bench_verified.parity import validate_plan
+          p=json.loads(Path('validation/parity-plan.proposed-r09.json').read_text())
+          p.update(model=os.environ['MODEL_ID'],base_url=os.environ['API_BASE'],approved_by=os.environ['APPROVED_BY'],approval_reference=os.environ['APPROVAL_REFERENCE'],status='team-approved execution configuration')
+          validate_plan(p)
+          Path('approved-plan.json').write_text(json.dumps(p,indent=2))
+          PY
+      - name: Ensure Docker is running
+        run: |
+          if ! docker info >/dev/null 2>&1; then sudo systemctl start docker; fi
+          docker info
+      - name: Execute both sides in the required order
+        working-directory: src/medcalc-bench-verified
+        run: |
+          uv run python - <<'PY'
+          import os, subprocess, sys
+          args=[sys.executable,'-m','medcalc_bench_verified.run_paired','--plan','approved-plan.json','--output',os.environ['GITHUB_WORKSPACE']+'/paid-evidence']
+          if os.environ['PILOT_ONLY']=='true': args.append('--pilot-only')
+          subprocess.run(args,check=True)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: medcalc-approved-model-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            paid-evidence/
+            src/medcalc-bench-verified/approved-plan.json
+          retention-days: 90
