@@ -95,5 +95,21 @@ class ReportingTests(unittest.TestCase):
                 collect_harbor(Path(d), ['1'])
 
 
+class IsolatedRuntimeTests(unittest.TestCase):
+    def test_stub_entrypoint_with_isolated_python(self):
+        import shutil, subprocess, sys, tempfile
+        sources=load_source(Path.home()/'.cache/harbor-medcalc')
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d)
+            import medcalc_bench_verified.native_runtime as runtime
+            shutil.copy(runtime.__file__,root/'native_runtime_core.py')
+            shutil.copy(Path(__file__).with_name('native_stub_runtime.py'),root/'stub.py')
+            (root/'request.json').write_text(json.dumps({'question':'Question','patient_note':'Note'}))
+            subprocess.run([sys.executable,'-I',str(root/'stub.py'),'--request',str(root/'request.json'),
+                            '--source',str(sources['evaluation/generate_code_prompt.py']),
+                            '--output',str(root/'answer.txt'),'--trace',str(root/'trace.json')],check=True,capture_output=True)
+            self.assertEqual((root/'answer.txt').read_text(),'5')
+
+
 if __name__ == '__main__':
     unittest.main()

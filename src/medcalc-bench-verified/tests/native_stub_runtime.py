@@ -3,6 +3,8 @@ import argparse
 import json
 from pathlib import Path
 from types import SimpleNamespace
+import sys
+sys.path.insert(0, str(Path(__file__).parent))
 from native_runtime_core import load_controller
 
 class Stub:
