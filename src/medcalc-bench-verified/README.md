@@ -58,9 +58,9 @@ Each role has its own Dockerfile. Only the verifier image contains grading code 
 
 ## Run Evaluation / Harness
 
-Registry execution is unavailable until the team publishes the dataset. Do not
-use an invented registry ID. Once published, the intended registry invocation is
-`harbor run -d medcalc-bench-verified/medcalc-bench-verified`.
+Use `harbor run -p` for local evaluation. After the team publishes the dataset,
+use `harbor run -d <published-dataset-id>`. The proposed release tags are `v1.0`
+for the full dataset and `parity` for the frozen subset.
 
 For local reproduction, from this directory:
 
@@ -99,10 +99,9 @@ modified cached inputs and unintended overwrites fail explicitly.
 
 ## Comparison with Original Benchmark (Parity)
 
-No live-model parity has run. `parity_experiment.json` is intentionally empty.
-Nothing in CI submits model API requests. Before model execution the team must
-approve the exact agent version, dated model ID, budgets, prompt/tool interface,
-subset and three runs per side. Ownership of this new entry remains unconfirmed.
+Formal model parity is pending, so `parity_experiment.json` is empty. The team
+coordinates the agent version, exact model, budget, prompt and tool interfaces,
+subset, and repeat count before the formal run.
 
 Prepared proposal: 110 deterministic cases, two per calculator; five pilot cases
 cover distinct calculators and decimal/integer/date outputs. Frozen IDs and a
@@ -118,21 +117,20 @@ console output. It starts without network access or host mounts. Review these
 execution differences from the published native harness with the team before
 running parity. A standard Codex or Claude Code evaluation remains pending.
 
-After team confirmation, fill the plan, pull its digest-pinned image with Docker, and set the API key in the execution
-environment (never put a key in the JSON or repository):
+For a team-approved hosted endpoint, fill the plan, pull its digest-pinned image
+with Docker, and provide the API key in the execution environment:
 
 ```bash
-# These commands have NOT been run with a real model.
 uv run medcalc-bench-verified --split parity --output-dir /tmp/parity-tasks
 uv run python -m medcalc_bench_verified.run_paired --plan approved-plan.json --output /new/evidence-directory --pilot-only
 ```
 
 The five-case pilot summary records that full parity is incomplete. The
-[fork validation workflow](https://github.com/mimosapudical/adapters/blob/medcalc-parity-review-r18/.github/workflows/medcalc-live-parity.yml)
-provides the same entry point. When using it, keep `pilot_only=true`,
-select the reviewed ref, enter the team-confirmed model/endpoint/approval, and store its key as the
-`MEDCALC_API_KEY` repository Actions secret. The workflow never starts on a
-push and never treats a pilot as the full three-repeat experiment.
+[fork validation workflow](https://github.com/mimosapudical/adapters/blob/medcalc-parity-actions-r21/.github/workflows/medcalc-live-parity.yml)
+provides the same entry point. Keep `pilot_only=true` for the first run, select
+the reviewed ref, enter the team-confirmed plan details, and store the key as
+the `MEDCALC_API_KEY` repository Actions secret. Pushes run only the offline
+smoke. Live execution requires a manual dispatch with `smoke_only` turned off.
 
 The driver follows the same paired order for every invocation. On a persistent
 Linux Docker host, start with `--pilot-only`. After reviewing the pilot, run the
@@ -144,8 +142,9 @@ mean, sample SEM and range-overlap summary after all three pairs are complete.
 Use a persistent host for the full experiment if the pilot projects a longer
 runtime than the hosted job allows.
 
-An offline stub validates transport and execution only; it is never recorded as
-model parity or a benchmark score.
+The offline stub validates transport, Docker execution and grading. An exploratory
+one-case local-model run exercised three matching requests per side and reached
+its call cap on both sides. Both runs provide engineering evidence only.
 
 Report original/Harbor raw run scores, mean ± sample SEM, per-calculator results,
 errors, and the required overlap of run-score ranges. SEM = sample standard
@@ -163,7 +162,8 @@ aggregation replaced that shard with its infrastructure recovery and checked
 distinct IDs and matching task checksums across controls.
 
 - [Final reference evidence and raw trial artifacts](https://github.com/mimosapudical/adapters/actions/runs/44444712671)
-- [Native transport smoke on the earlier bridge](https://github.com/mimosapudical/adapters/actions/runs/44445431188)
+- [Native transport and Docker smoke](https://github.com/mimosapudical/adapters/actions/runs/45017558842)
+- [Exploratory local-model transport run](https://github.com/mimosapudical/adapters/actions/runs/45018712034)
 
 The original oracle replays the released gold files. Numerical answer handling
 uses restricted Python arithmetic for both sides of the proposed experiment.
