@@ -96,6 +96,58 @@ class ReportingTests(unittest.TestCase):
                 collect_harbor(Path(d), ['1'])
 
 
+class StagedParityTests(unittest.TestCase):
+    def test_resume_reuses_paired_pilot_and_reports_only_complete_experiment(self):
+        from tempfile import TemporaryDirectory
+        from unittest.mock import patch
+        from medcalc_bench_verified.run_paired import run_experiment
+
+        def fake_stage(stage, index, ids, plan, rows, sources, cache_dir):
+            original = stage / "original"
+            harbor = stage / "harbor"
+            original.mkdir(parents=True)
+            harbor.mkdir()
+            (original / "result.json").write_text(json.dumps({
+                "cases": [{"row_id": row, "reward": 1} for row in ids],
+                "score": 0,
+            }))
+            for row in ids:
+                trial = harbor / row
+                trial.mkdir()
+                (trial / "result.json").write_text(json.dumps({
+                    "trial_name": row, "task_name": f"case-{row}",
+                    "verifier_environment_mode": "separate",
+                    "verifier_result": {"rewards": {"reward": 1}},
+                }))
+
+        plan = {"pilot_ids": ["1"], "task_ids": ["1", "2"], "model": "fixture"}
+        module = "medcalc_bench_verified.run_paired"
+        with TemporaryDirectory() as directory, patch(
+            f"{module}.read_rows", return_value=([], {}),
+        ), patch(f"{module}.run_stage", side_effect=fake_stage) as run_stage:
+            output = Path(directory) / "experiment"
+            cache_dir = Path(directory)
+            run_experiment(output, plan, cache_dir, through=0, resume=False)
+            self.assertFalse((output / "comparison.json").exists())
+            with self.assertRaisesRegex(ValueError, "approved plan"):
+                run_experiment(output, {**plan, "model": "different"}, cache_dir, through=1, resume=True)
+            run_experiment(output, plan, cache_dir, through=1, resume=True)
+            self.assertFalse((output / "comparison.json").exists())
+            run_experiment(output, plan, cache_dir, through=3, resume=True)
+            self.assertEqual([call.args[0].name for call in run_stage.call_args_list],
+                             ["pilot", "run-1", "run-2", "run-3"])
+            report = json.loads((output / "comparison.json").read_text())
+            self.assertEqual(report["original"]["runs"], [1, 1, 1])
+            self.assertEqual(report["harbor"]["runs"], [1, 1, 1])
+            self.assertTrue(report["ranges_overlap"])
+
+            incomplete = output / "run-2/harbor-summary.json"
+            incomplete.unlink()
+            with self.assertRaisesRegex(RuntimeError, "Unfinished stage"):
+                run_experiment(output, plan, cache_dir, through=3, resume=True)
+            self.assertEqual(run_stage.call_count, 4)
+
+
 class IsolatedRuntimeTests(unittest.TestCase):
     def test_controller_keeps_api_key_outside_code_worker(self):
         from unittest.mock import patch

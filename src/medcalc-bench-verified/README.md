@@ -124,11 +124,16 @@ select the reviewed ref, enter the team-confirmed model/endpoint/approval, and s
 `MEDCALC_API_KEY` repository Actions secret. The workflow never starts on a
 push and never treats a pilot as the full three-repeat experiment.
 
-The driver enforces the order pilot-original → pilot-Harbor → run-1-original →
-run-1-Harbor → run-2-original → run-2-Harbor → run-3-original → run-3-Harbor.
-Missing trials, API failures or container errors stop collection; they are not
-silently converted to model failures. The driver writes raw arrays, means,
-sample SEM and range-overlap status only after three complete runs per side.
+The driver follows the same paired order for every invocation. On a persistent
+Linux Docker host, start with `--pilot-only`. After reviewing the pilot, run the
+same command and output path with `--resume --through-run 1`, then advance
+through runs 2 and 3. Completed stages are checked from their raw results and
+reused. The driver checks the plan and adapter files before resuming and stops
+on incomplete stages so their attempts can be inspected. It writes the full
+mean, sample SEM and range-overlap summary after all three pairs are complete.
+Use a persistent host for the full experiment if the pilot projects a longer
+runtime than the hosted job allows.
+
 An offline stub validates transport and execution only; it is never recorded as
 model parity or a benchmark score.
 
