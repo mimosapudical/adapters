@@ -6,7 +6,7 @@ import subprocess
 from uuid import uuid4
 import re
 from types import SimpleNamespace
-from urllib.request import HTTPRedirectHandler, Request, build_opener
+from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 from urllib.parse import urlsplit
 
 
@@ -42,9 +42,18 @@ class ChatAPI:
             raise ValueError("Unexpected model substitution")
         # Snapshot before the original controller mutates its message list.
         payload = {"model": model, "messages": json.loads(json.dumps(messages))}
-        request = Request(self.base_url + "/chat/completions", data=json.dumps(payload).encode(),
-                          headers={"Authorization": "Bearer " + self.key, "Content-Type": "application/json"})
-        with build_opener(NoRedirect).open(request, timeout=90) as response:
+        headers = {"Content-Type": "application/json"}
+        handlers = [NoRedirect()]
+        if self.key is None:
+            if self.base_url != "http://127.0.0.1:11434/v1":
+                raise ValueError("Keyless requests are restricted to the local model server")
+            payload["max_tokens"] = 192
+            handlers.append(ProxyHandler({}))
+        else:
+            headers["Authorization"] = "Bearer " + self.key
+        request = Request(self.base_url + "/chat/completions",
+                          data=json.dumps(payload).encode(), headers=headers)
+        with build_opener(*handlers).open(request, timeout=120 if self.key is None else 90) as response:
             body = json.load(response)
         text = body["choices"][0]["message"]["content"]
         if not isinstance(text, str):

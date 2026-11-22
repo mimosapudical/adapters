@@ -1,0 +1,51 @@
+name: MedCalc local model pilot
+on:
+  push:
+    branches: [medcalc-keyless-pilot-r22]
+    paths:
+      - '.github/workflows/medcalc-keyless-pilot.yml'
+      - 'src/medcalc-bench-verified/scripts/keyless_pilot.py'
+      - 'src/medcalc-bench-verified/src/medcalc_bench_verified/native_runtime.py'
+permissions:
+  contents: read
+jobs:
+  local-model:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      MODEL: qwen2.5-coder:1.5b
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v7
+      - name: Load the local model on the CPU runner
+        run: |
+          if ! docker info >/dev/null 2>&1; then sudo systemctl start docker; fi
+          docker run -d --name medcalc-ollama -p 127.0.0.1:11434:11434 \
+            -e OLLAMA_NO_CLOUD=1 -e OLLAMA_NUM_PARALLEL=1 ollama/ollama:0.12.11@sha256:04c2fa3ba82b69ee211216b355b1d5dacfb7704b2cf734039bf126a857a5bc09
+          curl --retry 12 --retry-connrefused --retry-delay 2 --max-time 5 -fsS \
+            http://127.0.0.1:11434/api/version
+          docker exec medcalc-ollama ollama pull "$MODEL"
+          mkdir "$GITHUB_WORKSPACE/keyless-evidence"
+          curl -fsS http://127.0.0.1:11434/api/tags > "$GITHUB_WORKSPACE/keyless-evidence/model-tags.json"
+          docker inspect --format '{{.Image}}' medcalc-ollama > "$GITHUB_WORKSPACE/keyless-evidence/ollama-image.txt"
+      - name: Run the same case on both harnesses
+        working-directory: src/medcalc-bench-verified
+        run: |
+          uv sync --locked
+          image=$(uv run --locked python -c 'import json; print(json.load(open("validation/parity-plan.proposed-r15.json"))["image"])')
+          docker pull "$image"
+          PYTHONPATH="$PWD/scripts" uv run --locked python scripts/keyless_pilot.py \
+            --model "$MODEL" --output "$GITHUB_WORKSPACE/keyless-evidence/pilot"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: medcalc-keyless-pilot-${{ github.run_id }}
+          path: |
+            keyless-evidence/model-tags.json
+            keyless-evidence/ollama-image.txt
+            keyless-evidence/pilot/summary.json
+            keyless-evidence/pilot/original-trace.json
+            keyless-evidence/pilot/jobs/
+          retention-days: 30
