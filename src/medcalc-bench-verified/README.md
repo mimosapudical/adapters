@@ -76,6 +76,16 @@ Container base: `python:3.12.12-slim-bookworm`; the first workflow records actua
 build logs. The parity plan pins the evaluation image digest. Docker with Compose
 is required.
 
+To verify the current native bridge without a model key, run the same smoke
+test used in CI on a Docker host:
+
+```bash
+bash scripts/smoke_native.sh /tmp/medcalc-native-smoke
+```
+
+The output directory must be new. The test verifies real container execution
+with scripted replies, grading, and the captured answer and trace on three cases.
+
 ## Usage: Create Task Directories
 
 ```bash

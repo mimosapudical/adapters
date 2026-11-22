@@ -5,7 +5,7 @@ on:
       source_ref:
         description: Reviewed adapter branch or commit
         required: true
-        default: medcalc-parity-review-r15
+        default: medcalc-parity-review-r18
       model_id:
         description: Exact model ID confirmed by the Harbor team
         required: true
