@@ -2,22 +2,27 @@ name: MedCalc approved model experiment
 on:
   workflow_dispatch:
     inputs:
+      smoke_only:
+        description: Run three offline Docker cases without model credentials
+        type: boolean
+        required: true
+        default: true
       source_ref:
         description: Reviewed adapter branch or commit
         required: true
-        default: medcalc-parity-review-r18
+        default: c735ef95f0ea3395b87b65b31db63ffffc81d090
       model_id:
         description: Exact model ID confirmed by the Harbor team
-        required: true
+        required: false
       base_url:
         description: Team-provided HTTPS API base ending in /v1
-        required: true
+        required: false
       approved_by:
         description: Team member who confirmed the parity plan
-        required: true
+        required: false
       approval_reference:
         description: Link to that confirmation
-        required: true
+        required: false
       pilot_only:
         description: Run only the five paired pilot cases
         type: boolean
@@ -44,7 +49,15 @@ jobs:
           ref: ${{ inputs.source_ref }}
           persist-credentials: false
       - uses: astral-sh/setup-uv@v7
+      - name: Ensure Docker is running
+        run: |
+          if ! docker info >/dev/null 2>&1; then sudo systemctl start docker; fi
+          docker info
+      - name: Run the offline Docker bridge check
+        working-directory: src/medcalc-bench-verified
+        run: bash scripts/smoke_native.sh "$GITHUB_WORKSPACE/native-smoke"
       - name: Prepare the approved plan
+        if: ${{ !inputs.smoke_only }}
         working-directory: src/medcalc-bench-verified
         run: |
           uv sync --locked
@@ -57,12 +70,8 @@ jobs:
           validate_plan(p)
           Path('approved-plan.json').write_text(json.dumps(p,indent=2))
           PY
-      - name: Ensure Docker is running
-        run: |
-          if ! docker info >/dev/null 2>&1; then sudo systemctl start docker; fi
-          docker info
-          docker pull "$(python3 -c 'import json; print(json.load(open("src/medcalc-bench-verified/approved-plan.json"))["image"])')"
       - name: Execute both sides in the required order
+        if: ${{ !inputs.smoke_only }}
         env:
           OPENAI_API_KEY: ${{ secrets.MEDCALC_API_KEY }}
         working-directory: src/medcalc-bench-verified
@@ -78,6 +87,7 @@ jobs:
         with:
           name: medcalc-approved-model-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
+            native-smoke/jobs/
             paid-evidence/
             src/medcalc-bench-verified/approved-plan.json
           retention-days: 90
