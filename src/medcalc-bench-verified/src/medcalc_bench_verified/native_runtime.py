@@ -28,6 +28,10 @@ class NoRedirect(HTTPRedirectHandler):
         return None
 
 
+class LocalPilotTurnLimit(Exception):
+    """The exploratory local model reached its run budget."""
+
+
 class ChatAPI:
     def __init__(self, model, base_url, key):
         u = urlsplit(base_url)
@@ -47,13 +51,15 @@ class ChatAPI:
         if self.key is None:
             if self.base_url != "http://127.0.0.1:11434/v1":
                 raise ValueError("Keyless requests are restricted to the local model server")
-            payload["max_tokens"] = 192
+            if len(self.records) >= 3:
+                raise LocalPilotTurnLimit()
+            payload.update(max_tokens=80, temperature=0)
             handlers.append(ProxyHandler({}))
         else:
             headers["Authorization"] = "Bearer " + self.key
         request = Request(self.base_url + "/chat/completions",
                           data=json.dumps(payload).encode(), headers=headers)
-        with build_opener(*handlers).open(request, timeout=120 if self.key is None else 90) as response:
+        with build_opener(*handlers).open(request, timeout=150 if self.key is None else 90) as response:
             body = json.load(response)
         text = body["choices"][0]["message"]["content"]
         if not isinstance(text, str):
@@ -115,9 +121,18 @@ def docker_executor(source, image):
 
 def run_controller(source, request, model, api, image):
     execute = docker_executor(source, image)
-    answer, messages = load_controller(source, api, execute)(
-        request["question"], request["patient_note"], model
-    )
+    try:
+        answer, messages = load_controller(source, api, execute)(
+            request["question"], request["patient_note"], model
+        )
+    except LocalPilotTurnLimit:
+        return {
+            "model": model,
+            "messages": api.records[-1]["request"]["messages"],
+            "calls": api.records,
+            "answer": "N/A",
+            "stop_reason": "exploratory_local_turn_limit",
+        }
     return {
         "model": model,
         "messages": messages,

@@ -80,6 +80,8 @@ def main():
         "original_calls": len(original["calls"]),
         "harbor_calls": len(harbor_trace["calls"]),
         "matched_first_request": True,
+        "original_stop_reason": original.get("stop_reason"),
+        "harbor_stop_reason": harbor_trace.get("stop_reason"),
     }
     (output / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
     print(json.dumps(summary, indent=2))
