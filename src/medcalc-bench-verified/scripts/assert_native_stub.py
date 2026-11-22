@@ -9,5 +9,10 @@ for trial in trials:
     assert (trial/'artifacts/answer.txt').read_text()=='5', trial
     trace=json.loads((trial/'agent/native-trace.json').read_text())
     assert trace['answer']=='5', trial
-    assert '\n5\n' in trace['messages'][3]['content'], trial
+    feedback = trace['messages'][3]
+    prefix = 'I have executed your code, and the output is:'
+    suffix = 'If there was an error, or the computed answer is obviously incorrect,'
+    assert feedback['role'] == 'user' and feedback['content'].startswith(prefix), trial
+    output, separator, _ = feedback['content'][len(prefix):].partition(suffix)
+    assert separator and output.strip() == '5', trial
 print('3/3 native stub traces and answer artifacts verified; no model/API evidence claimed.')
