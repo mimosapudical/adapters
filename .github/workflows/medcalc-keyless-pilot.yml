@@ -24,10 +24,11 @@ jobs:
           if ! docker info >/dev/null 2>&1; then sudo systemctl start docker; fi
           docker run -d --name medcalc-ollama -p 127.0.0.1:11434:11434 \
             -e OLLAMA_NO_CLOUD=1 -e OLLAMA_NUM_PARALLEL=1 ollama/ollama:0.12.11@sha256:04c2fa3ba82b69ee211216b355b1d5dacfb7704b2cf734039bf126a857a5bc09
-          curl --retry 12 --retry-connrefused --retry-delay 2 --max-time 5 -fsS \
-            http://127.0.0.1:11434/api/version
-          docker exec medcalc-ollama ollama pull "$MODEL"
           mkdir "$GITHUB_WORKSPACE/keyless-evidence"
+          curl --retry 20 --retry-all-errors --retry-delay 2 --max-time 5 -fsS \
+            http://127.0.0.1:11434/api/version \
+            > "$GITHUB_WORKSPACE/keyless-evidence/ollama-version.json"
+          docker exec medcalc-ollama ollama pull "$MODEL"
           curl -fsS http://127.0.0.1:11434/api/tags > "$GITHUB_WORKSPACE/keyless-evidence/model-tags.json"
           docker inspect --format '{{.Image}}' medcalc-ollama > "$GITHUB_WORKSPACE/keyless-evidence/ollama-image.txt"
       - name: Run the same case on both harnesses
@@ -38,6 +39,11 @@ jobs:
           docker pull "$image"
           PYTHONPATH="$PWD/scripts" uv run --locked python scripts/keyless_pilot.py \
             --model "$MODEL" --output "$GITHUB_WORKSPACE/keyless-evidence/pilot"
+      - name: Collect the model server log
+        if: always()
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/keyless-evidence"
+          docker logs medcalc-ollama > "$GITHUB_WORKSPACE/keyless-evidence/ollama.log" 2>&1 || true
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -45,6 +51,8 @@ jobs:
           path: |
             keyless-evidence/model-tags.json
             keyless-evidence/ollama-image.txt
+            keyless-evidence/ollama-version.json
+            keyless-evidence/ollama.log
             keyless-evidence/pilot/summary.json
             keyless-evidence/pilot/original-trace.json
             keyless-evidence/pilot/jobs/
