@@ -1,31 +1,31 @@
-"""Execute the pinned original chat/code controller inside a disposable container.
-
-No API calls happen at import. The CLI refuses host execution. The original
-controller's code execution must never be invoked on the orchestration host.
-"""
-import argparse
+"""Keep API calls on the host and run model-produced Python in isolated workers."""
 import ast
-import contextlib
-import io
 import json
 import os
-from pathlib import Path
+import subprocess
+from uuid import uuid4
 import re
-import traceback
 from types import SimpleNamespace
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 from urllib.parse import urlsplit
 
 
-def load_controller(source, api):
-    names = {"capture_exec_output_and_errors", "extract_python_code", "apply_calc"}
+def load_controller(source, api, execute_code):
+    names = {"extract_python_code", "apply_calc"}
     nodes = [n for n in ast.parse(source).body if isinstance(n, ast.FunctionDef) and n.name in names]
     if {n.name for n in nodes} != names:
         raise ValueError("Original controller functions missing")
-    namespace = {"contextlib": contextlib, "io": io, "re": re,
-                 "traceback": traceback, "openai": api}
+    namespace = {
+        "re": re, "openai": api, "capture_exec_output_and_errors": execute_code,
+        "print": lambda *args: None,
+    }
     exec(compile(ast.Module(body=nodes, type_ignores=[]), "upstream/controller", "exec"), namespace)
     return namespace["apply_calc"]
+
+
+class NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
 
 
 class ChatAPI:
@@ -44,39 +44,74 @@ class ChatAPI:
         payload = {"model": model, "messages": json.loads(json.dumps(messages))}
         request = Request(self.base_url + "/chat/completions", data=json.dumps(payload).encode(),
                           headers={"Authorization": "Bearer " + self.key, "Content-Type": "application/json"})
-        with urlopen(request, timeout=90) as response:
+        with build_opener(NoRedirect).open(request, timeout=90) as response:
             body = json.load(response)
         text = body["choices"][0]["message"]["content"]
         if not isinstance(text, str):
             raise ValueError("Expected text completion")
-        self.records.append({"request": payload, "response": body})
+        self.records.append({
+            "request": payload, "content": text, "model": body.get("model"), "usage": body.get("usage"),
+        })
         return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=text))])
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--request", type=Path, required=True)
-    parser.add_argument("--source", type=Path, required=True)
-    parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--trace", type=Path, required=True)
-    args = parser.parse_args()
-    if os.environ.get("MEDCALC_SANDBOX") != "1" or not Path("/.dockerenv").exists():
-        raise RuntimeError("This code-executing controller must run inside Docker")
-    model = os.environ["MODEL_NAME"]
-    api = ChatAPI(model, os.environ["OPENAI_BASE_URL"], os.environ["OPENAI_API_KEY"])
-    task = json.loads(args.request.read_text())
-    controller = load_controller(args.source.read_text(), api)
-    answer, messages = None, []
-    try:
-        answer, messages = controller(task["question"], task["patient_note"], model)
-    finally:
-        args.trace.parent.mkdir(parents=True, exist_ok=True)
-        args.trace.write_text(json.dumps({"model": model, "messages": messages, "calls": api.records, "answer": answer}, indent=2))
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    # The upstream controller returns None at its turn limit; represent an
-    # ordinary failed answer without treating API or container errors as zero.
-    args.output.write_text("N/A" if answer is None else str(answer))
+def validate_image(image):
+    if not re.fullmatch(r"[a-z0-9][a-zA-Z0-9/_.:-]*@sha256:[0-9a-f]{64}", image):
+        raise ValueError("Expected a digest-pinned Docker image")
 
 
-if __name__ == "__main__":
-    main()
+def docker_executor(source, image):
+    """Run each model code block in a fresh, credential-free Docker worker."""
+    validate_image(image)
+    function = next(
+        node for node in ast.parse(source).body
+        if isinstance(node, ast.FunctionDef) and node.name == "capture_exec_output_and_errors"
+    )
+    worker = (
+        "import contextlib, io, sys, traceback\n"
+        + ast.get_source_segment(source, function)
+        + "\nsys.stdout.write(capture_exec_output_and_errors(sys.stdin.read())[:65536])"
+    )
+    docker_env = {name: os.environ[name] for name in ("PATH", "HOME", "XDG_RUNTIME_DIR") if name in os.environ}
+
+    def execute(code):
+        name = f"medcalc-code-{uuid4().hex}"
+        command = [
+            "docker", "run", "--rm", "--interactive", "--name", name,
+            "--network=none", "--read-only", "--tmpfs=/tmp:size=16m",
+            "--cap-drop=ALL", "--security-opt=no-new-privileges", "--user=65534:65534",
+            "--cpus=1", "--memory=1g", "--pids-limit=32", "--log-driver=none",
+            "--workdir=/tmp", image, "bash", "-c",
+            'python -I -c "$1" 2>&1 | head -c 65536; code=${PIPESTATUS[0]}; '
+            'test "$code" -eq 0 || test "$code" -eq 141',
+            "medcalc-code", worker,
+        ]
+        try:
+            result = subprocess.run(
+                command, input=code, encoding="utf-8", errors="replace", capture_output=True,
+                timeout=30, env=docker_env,
+            )
+        except subprocess.TimeoutExpired:
+            subprocess.run(
+                ["docker", "rm", "-f", name], capture_output=True, check=False,
+                timeout=15, env=docker_env,
+            )
+            return "Python execution timed out."
+        if result.returncode:
+            raise RuntimeError(f"Docker code worker failed: {result.stderr}")
+        return result.stdout
+
+    return execute
+
+
+def run_controller(source, request, model, api, image):
+    execute = docker_executor(source, image)
+    answer, messages = load_controller(source, api, execute)(
+        request["question"], request["patient_note"], model
+    )
+    return {
+        "model": model,
+        "messages": messages,
+        "calls": api.records,
+        "answer": "N/A" if answer is None else str(answer),
+    }

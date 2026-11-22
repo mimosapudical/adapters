@@ -1,8 +1,10 @@
 """Harbor bridge for the original, pinned MedCalc chat/code controller."""
+import asyncio
 import json
 from pathlib import Path
 import tempfile
 from .adapter import upstream_prompt
+from .native_runtime import ChatAPI, run_controller
 from .source import load_source, REVISION
 from harbor.agents.base import BaseAgent
 
@@ -27,36 +29,35 @@ class MedCalcNativeAgent(BaseAgent):
     def name():
         return "medcalc-native"
 
+    def __init__(self, *args, code_image=None, cache_dir=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.code_image = code_image
+        self.cache_dir = Path(cache_dir) if cache_dir else Path.home() / ".cache/harbor-medcalc"
+
     def version(self):
-        return REVISION + "+bridge-0.1"
+        return REVISION + "+bridge-0.2"
 
     async def setup(self, environment):
-        self.sources = load_source(Path.home()/".cache"/"harbor-medcalc")
-        result = await environment.exec("mkdir -p /opt/native")
-        if result.return_code:
-            raise RuntimeError("Could not prepare native controller")
-        await environment.upload_file(Path(__file__).with_name("native_runtime.py"), "/opt/native/runtime.py")
-        await environment.upload_file(self.sources["evaluation/generate_code_prompt.py"], "/opt/native/controller.py")
+        path = load_source(self.cache_dir)["evaluation/generate_code_prompt.py"]
+        self.controller_source = path.read_text()
 
-    async def run(self, instruction, environment, context):
-        if not self.model_name:
-            raise ValueError("An exact team-approved model ID is required")
+    def _chat_api(self):
         key, base = self._get_env("OPENAI_API_KEY"), self._get_env("OPENAI_BASE_URL")
         if not key or not base:
             raise ValueError("OPENAI_API_KEY and OPENAI_BASE_URL are required")
-        request = request_from_instruction(instruction, self.sources["evaluation/generate_code_prompt.py"].read_text())
-        with tempfile.TemporaryDirectory() as d:
-            path = Path(d)/"request.json"
-            path.write_text(json.dumps(request))
-            await environment.upload_file(path, "/opt/native/request.json")
-        result = await environment.exec(
-            "python -I /opt/native/runtime.py --request /opt/native/request.json --source /opt/native/controller.py "
-            "--output /workspace/answer.txt --trace /logs/agent/native-trace.json",
-            cwd="/workspace", timeout_sec=1200,
-            env={"OPENAI_API_KEY": key, "OPENAI_BASE_URL": base,
-                 "MODEL_NAME": self.model_name, "MEDCALC_SANDBOX": "1"})
+        return ChatAPI(self.model_name, base, key)
+
+    async def run(self, instruction, environment, context):
+        if not self.model_name or not self.code_image:
+            raise ValueError("An exact team-approved model and code image are required")
+        request = request_from_instruction(instruction, self.controller_source)
+        trace = await asyncio.to_thread(
+            run_controller, self.controller_source, request, self.model_name,
+            self._chat_api(), self.code_image,
+        )
         self.logs_dir.mkdir(parents=True, exist_ok=True)
-        (self.logs_dir/"native-stdout.txt").write_text(result.stdout or "")
-        (self.logs_dir/"native-stderr.txt").write_text(result.stderr or "")
-        if result.return_code:
-            raise RuntimeError("Native controller failed; inspect native-stderr.txt")
+        (self.logs_dir / "native-trace.json").write_text(json.dumps(trace, indent=2))
+        with tempfile.TemporaryDirectory() as directory:
+            answer = Path(directory) / "answer.txt"
+            answer.write_text(trace["answer"])
+            await environment.upload_file(answer, "/workspace/answer.txt")

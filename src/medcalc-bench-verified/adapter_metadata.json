@@ -2,7 +2,7 @@
   {
     "adapter_name": "medcalc-bench-verified",
     "adapter_builders": [
-      "Jingzhi Chen"
+      "Jingzhi Chen (153621177+mimosapudical@users.noreply.github.com)"
     ],
     "original_benchmark": [
       {
@@ -24,7 +24,7 @@
         "parity_sampling_rate": 0,
         "registry_benchmark_size": 0,
         "added_agents": [
-          "medcalc-native@801592132bfd833f049b517a4e013e00a5fc40fa+bridge-0.1"
+          "medcalc-native@801592132bfd833f049b517a4e013e00a5fc40fa+bridge-0.2"
         ],
         "parity_matching_agents": [
           "None"
@@ -33,7 +33,7 @@
           "None"
         ],
         "parity_costs": null,
-        "notes": "Reference validation underway; six shards independently checked (600/1100). Native controller bridge tested offline; no live-model parity or registry publication."
+        "notes": "Reference validation complete: 1,100 oracle passes and 1,100 zero-reward controls. Live-model parity and registry publication pending."
       }
     ]
   }

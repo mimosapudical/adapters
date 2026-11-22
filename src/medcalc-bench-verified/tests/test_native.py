@@ -1,4 +1,3 @@
-import contextlib
 import copy
 import csv
 import io
@@ -38,9 +37,11 @@ class NativeTests(unittest.TestCase):
 
     def test_real_controller_executes_code_then_returns_answer(self):
         api = StubAPI(['```python\nprint(2 + 3)\n```', '<answer> 5 <\\answer>'])
-        controller = load_controller(self.controller_source, api)
-        with contextlib.redirect_stdout(io.StringIO()):
-            answer, messages = controller('What is the value?', 'Example note', 'stub')
+        from unittest.mock import Mock
+        execute = Mock(return_value='5\n')
+        controller = load_controller(self.controller_source, api, execute)
+        answer, messages = controller('What is the value?', 'Example note', 'stub')
+        execute.assert_called_once_with('print(2 + 3)\n')
         self.assertEqual(answer, '5')
         self.assertEqual(len(api.calls), 2)
         self.assertIn('5', api.calls[1][-1]['content'])
@@ -50,12 +51,12 @@ class NativeTests(unittest.TestCase):
 
     def test_original_turn_limit_and_api_errors(self):
         api = StubAPI(['Please clarify'] * 20)
-        with contextlib.redirect_stdout(io.StringIO()):
-            answer, _ = load_controller(self.controller_source, api)('Question', 'Note', 'stub')
+        controller = load_controller(self.controller_source, api, None)
+        answer, _ = controller('Question', 'Note', 'stub')
         self.assertIsNone(answer)
         self.assertEqual(len(api.calls), 20)
         with self.assertRaises(StopIteration):
-            load_controller(self.controller_source, StubAPI([]))('Question', 'Note', 'stub')
+            load_controller(self.controller_source, StubAPI([]), None)('Question', 'Note', 'stub')
 
     def test_frozen_selection_balanced_independent_of_input_order(self):
         ids = select_ids(self.rows)
@@ -96,20 +97,36 @@ class ReportingTests(unittest.TestCase):
 
 
 class IsolatedRuntimeTests(unittest.TestCase):
-    def test_stub_entrypoint_with_isolated_python(self):
-        import shutil, subprocess, sys, tempfile
-        sources=load_source(Path.home()/'.cache/harbor-medcalc')
-        with tempfile.TemporaryDirectory() as d:
-            root=Path(d)
-            import medcalc_bench_verified.native_runtime as runtime
-            shutil.copy(runtime.__file__,root/'native_runtime_core.py')
-            shutil.copy(Path(__file__).with_name('native_stub_runtime.py'),root/'stub.py')
-            (root/'request.json').write_text(json.dumps({'question':'Question','patient_note':'Note'}))
-            subprocess.run([sys.executable,'-I',str(root/'stub.py'),'--request',str(root/'request.json'),
-                            '--source',str(sources['evaluation/generate_code_prompt.py']),
-                            '--output',str(root/'answer.txt'),'--trace',str(root/'trace.json')],check=True,capture_output=True)
-            self.assertEqual((root/'answer.txt').read_text(),'5')
+    def test_controller_keeps_api_key_outside_code_worker(self):
+        from unittest.mock import patch
+        import os
+        import subprocess
+        from medcalc_bench_verified.native_runtime import run_controller
+
+        sources = load_source(Path.home() / ".cache/harbor-medcalc")
+        source = sources["evaluation/generate_code_prompt.py"].read_text()
+        api = StubAPI(["```python\nprint(2 + 3)\n```", "<answer> 5 <\\answer>"])
+        api.records = []
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "test-only"}), patch(
+            "medcalc_bench_verified.native_runtime.subprocess.run",
+            return_value=subprocess.CompletedProcess(args=[], returncode=0, stdout="5\n", stderr=""),
+        ) as launch:
+            trace = run_controller(
+                source, {"question": "Question", "patient_note": "Note"}, "stub", api,
+                "python@sha256:" + "a" * 64,
+            )
+
+        self.assertEqual(trace["answer"], "5")
+        self.assertEqual(len(api.calls), 2)
+        self.assertIn("5", api.calls[1][-1]["content"])
+        launch.assert_called_once()
+        command = launch.call_args.args[0]
+        self.assertIn("--network=none", command)
+        self.assertIn("--read-only", command)
+        self.assertFalse(any(arg.startswith(("--mount", "--volume", "--env")) for arg in command))
+        self.assertNotIn("OPENAI_API_KEY", launch.call_args.kwargs["env"])
+        self.assertEqual(launch.call_args.kwargs["input"].strip(), "print(2 + 3)")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

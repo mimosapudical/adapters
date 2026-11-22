@@ -10,10 +10,10 @@ import io
 import json
 import os
 from pathlib import Path
-import subprocess
-import tempfile
+from urllib.parse import urlsplit
 from .source import load_source, REVISION
-from .grading import load_scorer, score_answer, numeric_eval
+from .grading import load_scorer, score_answer
+from .native_runtime import ChatAPI, run_controller, validate_image
 
 
 def read_rows(cache):
@@ -40,8 +40,10 @@ def validate_plan(plan):
             raise ValueError(f"Missing approved plan field: {name}")
     if plan.get("source_revision") != REVISION or plan.get("runs_per_side") != 3:
         raise ValueError("Wrong source revision or run count")
-    if "@sha256:" not in plan["image"]:
-        raise ValueError("Pin the exact Docker image digest before model execution")
+    base = urlsplit(plan["base_url"])
+    if base.scheme != "https" or not base.hostname or base.username or base.password or base.query or base.fragment:
+        raise ValueError("Use the agreed HTTPS API base without credentials, query or fragment")
+    validate_image(plan["image"])
     pilot = plan.get("pilot_ids", [])
     if len(pilot) != 5 or len(set(pilot)) != 5 or not set(pilot) <= set(plan.get("task_ids", [])):
         raise ValueError("Expected five distinct pilot IDs inside the full parity set")
@@ -59,43 +61,21 @@ def run_original(plan, rows, sources, output, run_index, pilot=False):
     lookup = {r["Row Number"]: r for r in rows}
     if set(ids)-lookup.keys():
         raise ValueError("Plan references unknown upstream rows")
-    scorer = load_scorer(sources["evaluation/evaluate.py"].read_text(), restricted=False)
+    source = sources["evaluation/generate_code_prompt.py"].read_text()
+    scorer = load_scorer(sources["evaluation/evaluate.py"].read_text())
     records = []
     for row_id in ids:
         row = lookup[row_id]
-        case = output/f"case-{row_id}"
+        case = output / f"case-{row_id}"
         case.mkdir()
-        workspace = case/"workspace"
-        workspace.mkdir()
-        with tempfile.TemporaryDirectory() as d:
-            request = Path(d)/"request.json"
-            request.write_text(json.dumps({"question": row["Question"], "patient_note": row["Patient Note"]}))
-            env = {**os.environ, "MODEL_NAME": plan["model"], "OPENAI_BASE_URL": plan["base_url"], "MEDCALC_SANDBOX": "1"}
-            command = ["docker", "run", "--rm", "--cpus", "1", "--memory", "1024m", "--workdir", "/workspace",
-                       "--env", "OPENAI_API_KEY", "--env", "OPENAI_BASE_URL", "--env", "MODEL_NAME", "--env", "MEDCALC_SANDBOX",
-                       "--mount", f"type=bind,src={request},dst=/opt/native/request.json,readonly",
-                       "--mount", f"type=bind,src={Path(__file__).with_name('native_runtime.py')},dst=/opt/native/runtime.py,readonly",
-                       "--mount", f"type=bind,src={sources['evaluation/generate_code_prompt.py']},dst=/opt/native/controller.py,readonly",
-                       "--mount", f"type=bind,src={workspace.resolve()},dst=/workspace", plan["image"],
-                       "timeout", "1200", "python", "-I", "/opt/native/runtime.py", "--request", "/opt/native/request.json", "--source", "/opt/native/controller.py",
-                       "--output", "/workspace/answer.txt", "--trace", "/workspace/native-trace.json"]
-            with (case/"stdout.txt").open("w") as out, (case/"stderr.txt").open("w") as err:
-                result = subprocess.run(command, env=env, stdout=out, stderr=err, timeout=1250)
-            if result.returncode:
-                raise RuntimeError(f"Original-side environment/API failure: case {row_id}; not a model score")
-        answer = (workspace/"answer.txt").read_text().strip()
-        reward = 0
-        if len(answer.encode()) <= 128:
-            try:
-                # Preserve the upstream scorer while preventing its eval from
-                # executing model-supplied code on the orchestration host.
-                if int(row["Calculator ID"]) not in (13, 68, 69):
-                    numeric_eval(answer)
-                reward = score_answer(answer, row, scorer)
-            except (ValueError, SyntaxError, TypeError, OverflowError, ZeroDivisionError):
-                reward = 0
+        request = {"question": row["Question"], "patient_note": row["Patient Note"]}
+        api = ChatAPI(plan["model"], plan["base_url"], os.environ["OPENAI_API_KEY"])
+        trace = run_controller(source, request, plan["model"], api, plan["image"])
+        (case / "native-trace.json").write_text(json.dumps(trace, indent=2))
+        answer = trace["answer"]
+        reward = score_answer(answer.strip(), row, scorer) if len(answer.encode()) <= 128 else 0
         records.append({"row_id": row_id, "reward": reward})
-        (case/"score.json").write_text(json.dumps(records[-1]))
+        (case / "score.json").write_text(json.dumps(records[-1]))
     (output/"result.json").write_text(json.dumps({"side":"original", "run_index":run_index, "cases":records,
        "score":sum(r["reward"] for r in records)/len(records), "source_revision":REVISION}, indent=2))
 
@@ -124,7 +104,7 @@ def main():
                 pilot.append(i)
         plan = {"source_revision":REVISION,"model":"", "base_url":"", "image":"",
                 "approved_by":"", "approval_reference":"", "runs_per_side":3,
-                "agent":"medcalc-native@"+REVISION+"+bridge-0.1", "task_ids":ids, "pilot_ids":pilot,
+                "agent":"medcalc-native@"+REVISION+"+bridge-0.2", "task_ids":ids, "pilot_ids":pilot,
                 "status":"proposal; no model calls executed", "api_calls_upper_bound":(3*2*110+2*5)*20}
         with args.output.open("x") as handle:
             json.dump(plan, handle, indent=2)

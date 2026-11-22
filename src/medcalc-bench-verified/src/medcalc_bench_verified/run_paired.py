@@ -70,7 +70,8 @@ def main():
         env = {**os.environ,'OPENAI_BASE_URL':plan['base_url']}
         command = [sys.executable,'-m','harbor.cli.main','run','-p',str((stage/'tasks').resolve()),
                    '-a','medcalc_bench_verified.native_agent:MedCalcNativeAgent','-m',plan['model'],
-                   '-n','1','--max-retries','0','--jobs-dir',str((stage/'harbor').resolve()),'--job-name',label]
+                   '-n','1','--max-retries','0','--agent-kwarg',f"code_image={plan['image']}",
+                   '--agent-kwarg',f'cache_dir={args.cache_dir.resolve()}','--jobs-dir',str((stage/'harbor').resolve()),'--job-name',label]
         with (stage/'harbor-command.log').open('w') as log:
             subprocess.run(command, env=env, check=True, stdout=log, stderr=subprocess.STDOUT)
         harbor = collect_harbor(stage/'harbor', ids)
