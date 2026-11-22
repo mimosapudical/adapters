@@ -124,12 +124,12 @@ environment (never put a key in the JSON or repository):
 ```bash
 # These commands have NOT been run with a real model.
 uv run medcalc-bench-verified --split parity --output-dir /tmp/parity-tasks
-uv run python -m medcalc_bench_verified.run_paired --plan approved-plan.json --output /new/evidence-directory
+uv run python -m medcalc_bench_verified.run_paired --plan approved-plan.json --output /new/evidence-directory --pilot-only
 ```
 
-For a five-case check only, append `--pilot-only`; this writes a pilot summary
-explicitly marked as incomplete parity. The fork's **MedCalc approved model
-experiment** workflow provides the same entry point: keep `pilot_only=true`,
+The five-case pilot summary records that full parity is incomplete. The
+[fork validation workflow](https://github.com/mimosapudical/adapters/blob/medcalc-parity-review-r18/.github/workflows/medcalc-live-parity.yml)
+provides the same entry point. When using it, keep `pilot_only=true`,
 select the reviewed ref, enter the team-confirmed model/endpoint/approval, and store its key as the
 `MEDCALC_API_KEY` repository Actions secret. The workflow never starts on a
 push and never treats a pilot as the full three-repeat experiment.
