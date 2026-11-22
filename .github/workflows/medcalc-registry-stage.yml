@@ -1,0 +1,72 @@
+name: MedCalc registry staging check
+on:
+  push:
+    branches: [medcalc-registry-stage-r23]
+    paths: ['.github/workflows/medcalc-registry-stage.yml']
+permissions:
+  contents: read
+jobs:
+  staged-datasets:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: src/medcalc-bench-verified
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v7
+      - name: Prepare both dataset manifests
+        run: |
+          uv sync --locked
+          mkdir -p "$RUNNER_TEMP/medcalc-stage" "$GITHUB_WORKSPACE/registry-evidence"
+          uv run --locked medcalc-bench-verified --output-dir "$RUNNER_TEMP/medcalc-stage/full"
+          uv run --locked medcalc-bench-verified --split parity --output-dir "$RUNNER_TEMP/medcalc-stage/parity"
+          for split in full parity; do
+            root="$RUNNER_TEMP/medcalc-stage/$split"
+            uv run --locked harbor init medcalc-bench-verified/medcalc-bench-verified --dataset --output-dir "$root" \
+              --author 'MedCalc-Bench contributors' --description 'MedCalc-Bench Verified, adapted for Harbor by Jingzhi Chen.'
+            cp "$root/dataset.toml" "$GITHUB_WORKSPACE/registry-evidence/$split.toml"
+          done
+          uv run --locked python - <<'PY'
+          import json, os, tomllib
+          from pathlib import Path
+          from harbor.models.dataset.manifest import DatasetManifest
+          from harbor.publisher.packager import Packager
+          root = Path(os.environ['RUNNER_TEMP']) / 'medcalc-stage'
+          plan = json.loads(Path('validation/parity-plan.proposed-r15.json').read_text())
+          counts = {}
+          digests = {}
+          for split, count in [('full', 1100), ('parity', 110)]:
+              directory = root / split
+              manifest = DatasetManifest.from_toml_file(directory / 'dataset.toml')
+              expected = {}
+              for task in directory.glob('case-*'):
+                  name = tomllib.loads((task / 'task.toml').read_text())['task']['name']
+                  assert name == f'medcalc-bench-verified/{task.name}' and name not in expected
+                  expected[name] = f'sha256:{Packager.compute_content_hash(task)[0]}'
+              assert len(manifest.tasks) == len(expected) == count
+              assert {task.name: task.digest for task in manifest.tasks} == expected
+              counts[split] = count
+              digests[split] = expected
+          assert set(digests['parity']) == {f'medcalc-bench-verified/case-{i}' for i in plan['task_ids']}
+          assert all(digests['full'][name] == digest for name, digest in digests['parity'].items())
+          evidence = Path(os.environ['GITHUB_WORKSPACE']) / 'registry-evidence/manifest-check.json'
+          evidence.write_text(json.dumps({'task_counts': counts, 'parity_digests_match_full': True}, indent=2) + '\n')
+          PY
+      - name: Run an Oracle from each staged directory
+        run: |
+          if ! docker info >/dev/null 2>&1; then sudo systemctl start docker; fi
+          for split in full parity; do
+            jobs="$GITHUB_WORKSPACE/registry-evidence/jobs"
+            uv run --locked harbor run -p "$RUNNER_TEMP/medcalc-stage/$split" -a oracle -n 1 --max-retries 0 \
+              --include-task-name case-8 --jobs-dir "$jobs" --job-name "$split"
+            uv run --locked python scripts/assert_job.py "$jobs/$split" --expected-count 1 --reward 1
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: medcalc-registry-staging-${{ github.run_id }}-${{ github.run_attempt }}
+          path: registry-evidence/
+          retention-days: 30
