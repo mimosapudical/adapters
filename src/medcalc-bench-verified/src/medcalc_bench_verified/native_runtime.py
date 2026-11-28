@@ -51,9 +51,9 @@ class ChatAPI:
         if self.key is None:
             if self.base_url != "http://127.0.0.1:11434/v1":
                 raise ValueError("Keyless requests are restricted to the local model server")
-            if len(self.records) >= 3:
+            if len(self.records) >= 8:
                 raise LocalPilotTurnLimit()
-            payload.update(max_tokens=80, temperature=0)
+            payload.update(max_tokens=192, temperature=0)
             handlers.append(ProxyHandler({}))
         else:
             headers["Authorization"] = "Bearer " + self.key

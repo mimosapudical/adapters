@@ -1,7 +1,7 @@
 name: MedCalc local model pilot
 on:
   push:
-    branches: [medcalc-keyless-pilot-r22]
+    branches: [medcalc-keyless-pilot-r24]
     paths:
       - '.github/workflows/medcalc-keyless-pilot.yml'
       - 'src/medcalc-bench-verified/scripts/keyless_pilot.py'
@@ -11,9 +11,15 @@ permissions:
 jobs:
   local-model:
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        case-index: [0, 1, 2, 3, 4]
     env:
       MODEL: qwen2.5-coder:1.5b
+      EXPECTED_MODEL_DIGEST: d7372fd828518a4d38b1eb196c673c31a85f2ed302b3d1e406c4c2d1b64a0668
+      CASE_INDEX: ${{ matrix.case-index }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -30,6 +36,8 @@ jobs:
             > "$GITHUB_WORKSPACE/keyless-evidence/ollama-version.json"
           docker exec medcalc-ollama ollama pull "$MODEL"
           curl -fsS http://127.0.0.1:11434/api/tags > "$GITHUB_WORKSPACE/keyless-evidence/model-tags.json"
+          jq -e --arg model "$MODEL" --arg digest "$EXPECTED_MODEL_DIGEST" 'any(.models[]; .name == $model and .digest == $digest)' \
+            "$GITHUB_WORKSPACE/keyless-evidence/model-tags.json" >/dev/null
           docker inspect --format '{{.Image}}' medcalc-ollama > "$GITHUB_WORKSPACE/keyless-evidence/ollama-image.txt"
       - name: Run the same case on both harnesses
         working-directory: src/medcalc-bench-verified
@@ -38,7 +46,7 @@ jobs:
           image=$(uv run --locked python -c 'import json; print(json.load(open("validation/parity-plan.proposed-r15.json"))["image"])')
           docker pull "$image"
           PYTHONPATH="$PWD/scripts" uv run --locked python scripts/keyless_pilot.py \
-            --model "$MODEL" --output "$GITHUB_WORKSPACE/keyless-evidence/pilot"
+            --model "$MODEL" --case-index "$CASE_INDEX" --output "$GITHUB_WORKSPACE/keyless-evidence/pilot"
       - name: Collect the model server log
         if: always()
         run: |
@@ -47,7 +55,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: medcalc-keyless-pilot-${{ github.run_id }}
+          name: medcalc-keyless-pilot-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.case-index }}
           path: |
             keyless-evidence/model-tags.json
             keyless-evidence/ollama-image.txt

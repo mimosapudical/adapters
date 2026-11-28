@@ -35,13 +35,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--model", required=True)
+    parser.add_argument("--case-index", type=int, choices=range(5), required=True)
     args = parser.parse_args()
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=False)
 
     adapter_root = Path(__file__).resolve().parents[1]
     plan = json.loads((adapter_root / "validation/parity-plan.proposed-r15.json").read_text())
-    row_id = plan["pilot_ids"][0]
+    row_id = plan["pilot_ids"][args.case_index]
     image = plan["image"]
     cache = Path.home() / ".cache/harbor-medcalc"
     rows, sources = read_rows(cache)
@@ -75,11 +76,13 @@ def main():
         "classification": "exploratory local model pilot; not an approved parity result",
         "case_id": row_id,
         "model": args.model,
-        "original_score": original_score,
-        "harbor_score": harbor["score"],
+        "original_score": original_score if not original.get("stop_reason") else None,
+        "harbor_score": harbor["score"] if not harbor_trace.get("stop_reason") else None,
         "original_calls": len(original["calls"]),
         "harbor_calls": len(harbor_trace["calls"]),
         "matched_first_request": True,
+        "original_answer_produced": original["answer"].strip() not in ("", "N/A"),
+        "harbor_answer_produced": harbor_trace["answer"].strip() not in ("", "N/A"),
         "original_stop_reason": original.get("stop_reason"),
         "harbor_stop_reason": harbor_trace.get("stop_reason"),
     }
