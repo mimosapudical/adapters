@@ -1,7 +1,7 @@
 name: MedCalc local model pilot
 on:
   push:
-    branches: [medcalc-keyless-pilot-r24]
+    branches: [medcalc-keyless-qwen3-r25]
     paths:
       - '.github/workflows/medcalc-keyless-pilot.yml'
       - 'src/medcalc-bench-verified/scripts/keyless_pilot.py'
@@ -15,10 +15,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        case-index: [0, 1, 2, 3, 4]
+        case-index: [2]
     env:
-      MODEL: qwen2.5-coder:1.5b
-      EXPECTED_MODEL_DIGEST: d7372fd828518a4d38b1eb196c673c31a85f2ed302b3d1e406c4c2d1b64a0668
+      MODEL: qwen3:4b-instruct-2507-q4_K_M
+      EXPECTED_MODEL_DIGEST: 0edcdef34593eac1aa2be9c7d06c432dcf81945adca5eca2f27662c18f168ba0
       CASE_INDEX: ${{ matrix.case-index }}
     steps:
       - uses: actions/checkout@v6
